@@ -46,7 +46,11 @@ class embeddable_galleries {
 		add_action( 'init', array( $this, 'add_rewrite_endpoint' ) );
 		add_action( 'template_redirect', array( $this, 'template_redirect' ) );
 
-		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_scripts_and_styles' ) );
+		add_action( 'wp_head', array( $this, 'embed_form_template' ) );
+
+		add_action( 'wp_ajax_embeddable_galleries', array( $this, 'ajax_handler' ) );
+		add_action( 'wp_ajax_nopriv_embeddable_galleries', array( $this, 'ajax_handler' ) );
 
 		register_activation_hook( __file__, array( $this, 'plugin_activation' ) );
 		register_deactivation_hook( __file__, array( $this, 'plugin_deactivation' ) );
@@ -88,24 +92,89 @@ class embeddable_galleries {
 	/**
 	 * Enqueue needed javascript files
 	 */
-	function enqueue_scripts() {
+	function enqueue_scripts_and_styles() {
 		global $post;
 
 		if ( is_singular() && has_shortcode( $post->post_content, 'gallery' ) ) {
 			wp_enqueue_script(
 				'embeddable-galleries',
 				plugins_url( '/js/embeddable-galleries.js' , dirname(__FILE__) ),
-				array( 'jquery-ui-dialog' ),
+				array( 'underscore', 'backbone' ),
 				'0.1',
 				true
 			);
 
-			$localize_array = array(
-				'embed_text' => __( 'Embed Gallery', 'embeddable-galleries' ),
-				'embed_url' => $this->get_gallery_embed_link()
-			);
-			wp_localize_script( 'embeddable-galleries', 'embeddable_galleries', $localize_array );
+			$localize_array = array( 'Data' => array(
+				'EmbedText' => __( 'Embed Gallery', 'embeddable-galleries' ),
+				'Modal'     => array(
+					'Title'       => __( 'Embed Options', 'embeddable-galleries' ),
+					'Description' => __( 'You should embed this gallery!', 'embeddable-galleries' ),
+					'Close'       => __( 'Close', 'embeddable-galleries' ),
+				)
+				//'galleries' => $this->localize_post_galleries($post)
+			) );
+			wp_localize_script( 'embeddable-galleries', 'embeddableGalleries', $localize_array );
+
+
+			wp_enqueue_style( 'embeddable-galleries', plugins_url( '/css/embeddable-galleries.css' , dirname(__FILE__) ) );
 		}
+	}
+
+	private function localize_post_galleries( $post ) {
+		$galleries = $this->get_post_galleries( $post );
+
+		$return = array();
+		$instance = 1;
+
+		foreach ( $galleries as $gallery ) {
+			$return[] = array(
+				'embed_url' => $this->get_gallery_embed_link( $post->ID, $instance ),
+				'instance'  => 1
+			);
+		}
+
+		return $return;
+	}
+
+	function embed_form_template() {
+		global $post;
+
+		if ( is_singular() && has_shortcode( $post->post_content, 'gallery' ) ) {
+
+	?>
+		<script type="text/template" id="embed-gallery-link">
+			<div class="embed-gallery">
+				<a href="#" class="embed-link" title="<%= text %>"><%= text %></a>
+			</div>
+		</script>
+		<script type="text/template" id="embed-gallery-modal">
+			<div class="embed-gallery-modal">
+				<div class="embed-modal-content">
+					<a href="#" class="embed-modal-close" title="<%= close %>"><%= close %></a>
+					<h4 class="embed-title"><%= title %></h4>
+					<p><%= description %></p>
+					<form class="embed-modal-form">
+						<textarea class="embed-code" onclick="this.focus(); this.select()"><%= embed_code %></textarea>
+					</form>
+				</div>
+				<div class="embed-gallery-modal-backdrop"></div>
+			</div>
+		</script>
+		<script type="text/template" id="embed-gallery-iframe">
+			<iframe src="<%= src %>" width="<%= width %>" height="<%= height %>" border="0"></iframe>
+		</script>
+	<?php
+		}
+	}
+
+	function ajax_handler() {
+		if ( 'get_embed_link' === $_POST['method'] ) {
+			echo $this->get_gallery_embed_link( (int) $_POST['post'], (int) $_POST['gallery'] );
+		} else {
+			echo 0;
+		}
+
+		exit;
 	}
 
 	/**
@@ -205,7 +274,8 @@ class embeddable_galleries {
 				margin-left: 0;
 			}
 			/* see gallery_shortcode() in wp-includes/media.php */
-		</style>";
+		</style>
+		<base target='_blank' />";
 
 		$output = $gallery_style . "\n\t\t" . gallery_shortcode( $gallery );
 
